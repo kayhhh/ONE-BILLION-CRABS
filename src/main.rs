@@ -6,20 +6,3 @@ fn main() {
 
     process_file(filename).expect("Error processing file");
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_data() {
-        let files = std::fs::read_dir("test-data").unwrap();
-
-        for file in files {
-            let file = file.unwrap();
-            let path = file.path();
-            let filename = path.to_str().unwrap();
-            process_file(filename).expect("Error processing file");
-        }
-    }
-}

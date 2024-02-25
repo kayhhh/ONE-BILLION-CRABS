@@ -47,14 +47,37 @@ pub fn process_file(path: &str) -> Result<(), Box<dyn Error>> {
         station.min = station.min.min(value);
     });
 
-    let out_file = path.replace(".txt", ".out");
-    println!("Writing to {}", out_file);
+    // Sort by name
+    let mut array = map.into_iter().collect::<Vec<_>>();
+    array.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let mut file = std::fs::File::create(out_file)?;
-    for (k, v) in map.iter() {
-        let line = format!("{}:{};{};{}\n", k, v.min, v.mean, v.max);
+    let out_file_name = path.replace(".txt", ".out");
+    println!("Writing output to {}", out_file_name);
+    let mut file = std::fs::File::create(out_file_name)?;
+
+    for (k, v) in array {
+        let line = format!("{}:{};{:.1};{}\n", k, v.min, v.mean, v.max);
         file.write_all(line.as_bytes())?;
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data() {
+        let files = std::fs::read_dir("test-data")
+            .unwrap()
+            .filter_map(|f| f.ok())
+            .filter(|f| f.path().to_str().unwrap().ends_with(".txt"));
+
+        for file in files {
+            let path = file.path();
+            let filename = path.to_str().unwrap();
+            process_file(filename).expect("Error processing file");
+        }
+    }
 }
