@@ -7,11 +7,11 @@
 With nix:
 
 ```bash
-nix run . -- data/1mil.txt
+time nix run . -- data/1mil.txt
 ```
 
 With cargo:
 
 ```bash
-cargo run data/1mil.txt
+time cargo run data/1mil.txt
 ```
