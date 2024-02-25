@@ -1,0 +1,10 @@
+[package]
+name = "foo-bar"
+description = ""
+version = "0.0.0"
+edition = "2021"
+repository = ""
+license = "GPL-3.0-or-later"
+
+[profile.release]
+lto = true
