@@ -4,14 +4,6 @@
 
 ## How to run
 
-With nix:
-
 ```bash
-time nix run . -- data/1mil.txt
-```
-
-With cargo:
-
-```bash
-time cargo run data/1mil.txt
+nix run . -- data/1mil.txt
 ```
