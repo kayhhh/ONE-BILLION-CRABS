@@ -1,14 +1,25 @@
+use one_billion_crabs::process_file;
+
 fn main() {
-    // Take in file as argument
     let args: Vec<String> = std::env::args().collect();
     let filename = &args.get(1).expect("No file provided");
 
-    // Read file
-    let contents =
-        std::fs::read_to_string(filename).expect("Something went wrong reading the file");
+    process_file(filename).expect("Error processing file");
+}
 
-    // Split file into lines
-    let lines: Vec<&str> = contents.split('\n').collect();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    println!("Line count: {}", lines.len());
+    #[test]
+    fn test_data() {
+        let files = std::fs::read_dir("test-data").unwrap();
+
+        for file in files {
+            let file = file.unwrap();
+            let path = file.path();
+            let filename = path.to_str().unwrap();
+            process_file(filename).expect("Error processing file");
+        }
+    }
 }
