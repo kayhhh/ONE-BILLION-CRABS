@@ -1,6 +1,6 @@
-use std::{collections::HashMap, error::Error, io::Write};
+use std::{error::Error, io::Write};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct WeatherStation {
     count: usize,
     max: f64,
@@ -19,35 +19,72 @@ impl Default for WeatherStation {
     }
 }
 
+const ALPHABET: &str = "abcdefghijklmnopqrstuvwxyz";
+
 pub fn process_file(path: &str) -> Result<(), Box<dyn Error>> {
     let contents = std::fs::read_to_string(path)?;
-    let mut map: HashMap<String, WeatherStation> = HashMap::new();
+
+    let (send_out, recv_out) = std::sync::mpsc::channel();
+
+    let num_threads = std::thread::available_parallelism().unwrap().get();
+
+    let threads = (0..num_threads)
+        .map(|_| {
+            let (send_line, recv_line) = std::sync::mpsc::channel::<String>();
+
+            let send_out = send_out.clone();
+
+            std::thread::spawn(move || {
+                let mut station_map = std::collections::HashMap::<String, WeatherStation>::new();
+
+                for line in recv_line.iter() {
+                    let line = line.to_string();
+                    let s = line.split(';').collect::<Vec<_>>();
+                    let name = s[0];
+                    let value = s[1].parse::<f64>().unwrap();
+
+                    let station = station_map.entry(name.to_string()).or_default();
+
+                    station.count += 1;
+                    station.total += value;
+                    station.max = station.max.max(value);
+                    station.min = station.min.min(value);
+
+                    send_out
+                        .send((name.to_string(), station.clone()))
+                        .expect("Error sending line");
+                }
+            });
+
+            send_line
+        })
+        .collect::<Vec<_>>();
+
+    let mut num_lines = 0;
 
     contents.split('\n').for_each(|line| {
         if line.is_empty() {
             return;
         }
 
-        let s = line.split(';').collect::<Vec<_>>();
+        let thread_idx = ALPHABET
+            .chars()
+            .position(|c| c == line.chars().next().unwrap())
+            .unwrap()
+            % num_threads;
 
-        let name = s[0];
-        let value = s[1].parse::<f64>().unwrap();
+        let thread = &threads[thread_idx];
 
-        let station = match map.get_mut(name) {
-            Some(station) => station,
-            None => {
-                map.insert(name.to_string(), WeatherStation::default());
-                map.get_mut(name).unwrap()
-            }
-        };
+        thread.send(line.to_string()).expect("Error sending line");
 
-        station.count += 1;
-        station.total += value;
-        station.max = station.max.max(value);
-        station.min = station.min.min(value);
+        num_lines += 1;
     });
 
-    let mut array = map.into_iter().collect::<Vec<_>>();
+    for thread in threads {
+        drop(thread);
+    }
+
+    let mut array = recv_out.iter().take(num_lines).collect::<Vec<_>>();
     array.sort_by(|a, b| a.0.cmp(&b.0));
 
     let out_file_name = path.replace(".txt", ".out");
