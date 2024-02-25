@@ -4,8 +4,8 @@ use std::{collections::HashMap, error::Error, io::Write};
 struct WeatherStation {
     count: usize,
     max: f64,
-    mean: f64,
     min: f64,
+    total: f64,
 }
 
 impl Default for WeatherStation {
@@ -13,8 +13,8 @@ impl Default for WeatherStation {
         WeatherStation {
             count: 0,
             max: -std::f64::INFINITY,
-            mean: 0.0,
             min: std::f64::INFINITY,
+            total: 0.0,
         }
     }
 }
@@ -42,7 +42,7 @@ pub fn process_file(path: &str) -> Result<(), Box<dyn Error>> {
         };
 
         station.count += 1;
-        station.mean = (station.mean * (station.count - 1) as f64 + value) / station.count as f64;
+        station.total += value;
         station.max = station.max.max(value);
         station.min = station.min.min(value);
     });
@@ -56,7 +56,8 @@ pub fn process_file(path: &str) -> Result<(), Box<dyn Error>> {
     let mut file = std::fs::File::create(out_file_name)?;
 
     for (k, v) in array {
-        let line = format!("{}:{};{:.1};{}\n", k, v.min, v.mean, v.max);
+        let mean = v.total / v.count as f64;
+        let line = format!("{}:{};{:.1};{}\n", k, v.min, mean, v.max);
         file.write_all(line.as_bytes())?;
     }
 
