@@ -18,5 +18,5 @@ I should note that the output isn't validated, I'm just assuming it's correct xd
 ```
 real	1m37.583s
 user	1m28.185s
-sys	    0m9.320s
+sys	0m9.320s
 ```
