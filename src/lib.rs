@@ -1,4 +1,8 @@
-use std::{error::Error, io::Write};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    io::Write,
+};
 
 #[derive(Clone, Debug)]
 struct WeatherStation {
@@ -19,52 +23,46 @@ impl Default for WeatherStation {
     }
 }
 
-const MAX_THREADS: usize = 8;
+const SIGNAL_END: &str = "END";
 
 /// Process the given file and return the name of the output file.
-pub fn process_file(path: &str) -> Result<String, Box<dyn Error>> {
+pub fn process_file(path: &str, num_threads: usize) -> Result<String, Box<dyn Error>> {
     let contents = std::fs::read_to_string(path)?;
 
     let (send_out, recv_out) = std::sync::mpsc::channel();
 
-    let mut num_threads = std::thread::available_parallelism().unwrap().get();
-
-    if num_threads == 0 {
-        num_threads = 1;
-    }
-
-    if num_threads > MAX_THREADS {
-        num_threads = MAX_THREADS;
-    }
-
-    println!("Using {} threads", num_threads);
-
     let threads = (0..num_threads)
         .map(|_| {
+            let send_out = send_out.clone();
             let (send_line, recv_line) = std::sync::mpsc::channel::<String>();
 
-            let send_out = send_out.clone();
-
             std::thread::spawn(move || {
-                let mut station_map = std::collections::HashMap::<String, WeatherStation>::new();
+                let mut station_map = HashMap::<String, WeatherStation>::new();
 
                 for line in recv_line.iter() {
-                    let line = line.to_string();
+                    if line == SIGNAL_END {
+                        break;
+                    }
+
                     let s = line.split(';').collect::<Vec<_>>();
                     let name = s[0];
                     let value = s[1].parse::<f64>().unwrap();
 
-                    let station = station_map.entry(name.to_string()).or_default();
+                    let station = match station_map.get_mut(name) {
+                        Some(station) => station,
+                        None => {
+                            station_map.insert(name.to_string(), WeatherStation::default());
+                            station_map.get_mut(name).unwrap()
+                        }
+                    };
 
                     station.count += 1;
                     station.total += value;
                     station.max = station.max.max(value);
                     station.min = station.min.min(value);
-
-                    send_out
-                        .send((name.to_string(), station.clone()))
-                        .expect("Error sending line");
                 }
+
+                send_out.send(station_map).expect("Error sending line");
             });
 
             send_line
@@ -72,6 +70,7 @@ pub fn process_file(path: &str) -> Result<String, Box<dyn Error>> {
         .collect::<Vec<_>>();
 
     let mut num_lines = 0;
+    let mut used_threads = HashSet::new();
 
     contents.split('\n').for_each(|line| {
         if line.is_empty() {
@@ -82,6 +81,7 @@ pub fn process_file(path: &str) -> Result<String, Box<dyn Error>> {
 
         // Deterministic thread selection using the first character of the line
         let thread_idx = (first_char as usize) % num_threads;
+        used_threads.insert(thread_idx);
         let thread = &threads[thread_idx];
 
         thread.send(line.to_string()).expect("Error sending line");
@@ -89,11 +89,17 @@ pub fn process_file(path: &str) -> Result<String, Box<dyn Error>> {
         num_lines += 1;
     });
 
-    for thread in threads {
-        drop(thread);
+    for send in threads {
+        send.send(SIGNAL_END.to_string())
+            .expect("Error sending line");
     }
 
-    let mut array = recv_out.iter().take(num_lines).collect::<Vec<_>>();
+    let mut array = recv_out
+        .iter()
+        .take(used_threads.len())
+        .flat_map(|m| m.into_iter().collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+
     array.sort_by(|a, b| a.0.cmp(&b.0));
 
     let out_file_name = path.replace(".txt", ".out");
@@ -125,7 +131,7 @@ mod tests {
 
             println!("Testing {}", filename);
 
-            let out = process_file(filename).expect("Error processing file");
+            let out = process_file(filename, 1).expect("Error processing file");
             validate(filename, &out);
         }
     }
