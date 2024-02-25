@@ -1,4 +1,6 @@
 *.out
-data
-result
-target
+/data
+/flamegraph.svg
+/perf.data*
+/result
+/target

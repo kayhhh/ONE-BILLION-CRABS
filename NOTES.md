@@ -11,7 +11,8 @@ I created about as simple a solution as I could:
 - Sort the vector
 - Iterate over the vector and write to out file
 
-I should note that the output isn't validated, I'm just assuming it's correct xd.
+I ended up changing mean to a total, then calculating the mean at the end, but it didn't seem to make a difference.
+I should also note that the output isn't validated, I'm just assuming it's correct xd.
 
 ## Result
 

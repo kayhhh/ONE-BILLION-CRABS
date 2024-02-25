@@ -70,7 +70,7 @@
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${localSystem};
-          packages = with pkgs; [ cargo-watch rust-analyzer ];
+          packages = with pkgs; [ cargo-flamegraph cargo-watch rust-analyzer ];
         };
       });
 }

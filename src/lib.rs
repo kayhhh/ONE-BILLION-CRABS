@@ -47,7 +47,6 @@ pub fn process_file(path: &str) -> Result<(), Box<dyn Error>> {
         station.min = station.min.min(value);
     });
 
-    // Sort by name
     let mut array = map.into_iter().collect::<Vec<_>>();
     array.sort_by(|a, b| a.0.cmp(&b.0));
 
