@@ -56,9 +56,7 @@
 
         apps.default = flake-utils.lib.mkApp {
           drv = pkgs.writeScriptBin "one-billion-crabs" ''
-            ${
-              self.packages.${localSystem}.one-billion-crabs
-            }/bin/one-billion-crabs
+            ${self.packages.${localSystem}.default}/bin/one-billion-crabs $@
           '';
         };
 
