@@ -19,14 +19,25 @@ impl Default for WeatherStation {
     }
 }
 
-const ALPHABET: &str = "abcdefghijklmnopqrstuvwxyz";
+const MAX_THREADS: usize = 8;
 
-pub fn process_file(path: &str) -> Result<(), Box<dyn Error>> {
+/// Process the given file and return the name of the output file.
+pub fn process_file(path: &str) -> Result<String, Box<dyn Error>> {
     let contents = std::fs::read_to_string(path)?;
 
     let (send_out, recv_out) = std::sync::mpsc::channel();
 
-    let num_threads = std::thread::available_parallelism().unwrap().get();
+    let mut num_threads = std::thread::available_parallelism().unwrap().get();
+
+    if num_threads == 0 {
+        num_threads = 1;
+    }
+
+    if num_threads > MAX_THREADS {
+        num_threads = MAX_THREADS;
+    }
+
+    println!("Using {} threads", num_threads);
 
     let threads = (0..num_threads)
         .map(|_| {
@@ -67,12 +78,10 @@ pub fn process_file(path: &str) -> Result<(), Box<dyn Error>> {
             return;
         }
 
-        let thread_idx = ALPHABET
-            .chars()
-            .position(|c| c == line.chars().next().unwrap())
-            .unwrap()
-            % num_threads;
+        let first_char = line.chars().next().unwrap();
 
+        // Deterministic thread selection using the first character of the line
+        let thread_idx = (first_char as usize) % num_threads;
         let thread = &threads[thread_idx];
 
         thread.send(line.to_string()).expect("Error sending line");
@@ -88,8 +97,7 @@ pub fn process_file(path: &str) -> Result<(), Box<dyn Error>> {
     array.sort_by(|a, b| a.0.cmp(&b.0));
 
     let out_file_name = path.replace(".txt", ".out");
-    println!("Writing output to {}", out_file_name);
-    let mut file = std::fs::File::create(out_file_name)?;
+    let mut file = std::fs::File::create(out_file_name.clone())?;
 
     for (k, v) in array {
         let mean = v.total / v.count as f64;
@@ -97,7 +105,7 @@ pub fn process_file(path: &str) -> Result<(), Box<dyn Error>> {
         file.write_all(line.as_bytes())?;
     }
 
-    Ok(())
+    Ok(out_file_name)
 }
 
 #[cfg(test)]
@@ -114,7 +122,49 @@ mod tests {
         for file in files {
             let path = file.path();
             let filename = path.to_str().unwrap();
-            process_file(filename).expect("Error processing file");
+
+            println!("Testing {}", filename);
+
+            let out = process_file(filename).expect("Error processing file");
+            validate(filename, &out);
         }
+    }
+
+    /// Validate that the output file is correct the given input file.
+    fn validate(input_file: &str, output_file: &str) {
+        let input = std::fs::read_to_string(input_file).unwrap();
+        let output = std::fs::read_to_string(output_file).unwrap();
+
+        let mut station_map = std::collections::HashMap::<String, WeatherStation>::new();
+
+        for line in input.split('\n') {
+            if line.is_empty() {
+                continue;
+            }
+
+            let s = line.split(';').collect::<Vec<_>>();
+            let name = s[0];
+            let value = s[1].parse::<f64>().unwrap();
+
+            let station = station_map.entry(name.to_string()).or_default();
+
+            station.count += 1;
+            station.total += value;
+            station.max = station.max.max(value);
+            station.min = station.min.min(value);
+        }
+
+        let mut array = station_map.iter().collect::<Vec<_>>();
+        array.sort_by(|a, b| a.0.cmp(b.0));
+
+        let mut expected = String::new();
+
+        for (k, v) in array {
+            let mean = v.total / v.count as f64;
+            let line = format!("{}:{};{:.1};{}\n", k, v.min, mean, v.max);
+            expected.push_str(&line);
+        }
+
+        assert_eq!(output, expected);
     }
 }
