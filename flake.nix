@@ -47,31 +47,22 @@
           pname = "doc";
         });
 
-        foo-bar = craneLib.buildPackage (commonArgs // {
+        one-billion-crabs = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
-          pname = "foo-bar";
+          pname = "one-billion-crabs";
         });
       in {
-        checks = { inherit foo-bar cargoClippy cargoDoc; };
+        checks = { inherit one-billion-crabs cargoClippy cargoDoc; };
 
-        apps = rec {
-          foo = flake-utils.lib.mkApp {
-            drv = pkgs.writeScriptBin "foo" ''
-              ${self.packages.${localSystem}.foo}/bin/foo-bar
-            '';
-          };
-
-          default = foo;
+        apps.default = flake-utils.lib.mkApp {
+          drv = pkgs.writeScriptBin "one-billion-crabs" ''
+            ${
+              self.packages.${localSystem}.one-billion-crabs
+            }/bin/one-billion-crabs
+          '';
         };
 
-        packages = rec {
-          foo = foo-bar;
-
-          default = pkgs.symlinkJoin {
-            name = "all";
-            paths = [ foo ];
-          };
-        };
+        packages.default = one-billion-crabs;
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${localSystem};
