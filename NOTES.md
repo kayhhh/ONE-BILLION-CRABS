@@ -24,6 +24,8 @@ sys	0m9.320s
 
 # II. Tokio
 
+https://github.com/kayhhh/ONE-BILLION-CRABS/blob/b5b190e7408f8b8231be3147713e77ed84d77cee/src/lib.rs
+
 After trying a few times to add multithreading using stdlib, I eventually gave up and added Tokio.
 The main improvement here is a chunk-based reading of the file.
 
