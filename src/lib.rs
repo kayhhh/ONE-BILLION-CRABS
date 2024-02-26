@@ -1,125 +1,154 @@
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-    io::Write,
-};
+use std::{collections::BTreeMap, error::Error, io::Write};
+
+use tokio::io::AsyncReadExt;
 
 #[derive(Clone, Debug)]
 struct WeatherStation {
-    count: usize,
-    max: f64,
-    min: f64,
-    total: f64,
+    count: u64,
+    max: i64,
+    min: i64,
+    sum: i64,
 }
 
 impl Default for WeatherStation {
     fn default() -> Self {
         WeatherStation {
             count: 0,
-            max: -std::f64::INFINITY,
-            min: std::f64::INFINITY,
-            total: 0.0,
+            max: i64::MIN,
+            min: i64::MAX,
+            sum: 0,
         }
     }
 }
 
-const SIGNAL_END: &str = "END";
+// Size of each chunk we read from the file, in bytes.
+const CHUNK_SIZE: usize = 64 * 1024 * 1024;
 
-/// Process the given file and return the name of the output file.
-pub fn process_file(path: &str, num_threads: usize) -> Result<String, Box<dyn Error>> {
-    let contents = std::fs::read_to_string(path)?;
+/// Process the given file, returns the name of the output file.
+pub async fn process_file(path: &str) -> Result<String, Box<dyn Error>> {
+    let mut file = tokio::fs::File::open(path).await?;
 
-    let (send_out, recv_out) = std::sync::mpsc::channel();
+    let mut handles = Vec::new();
+    let mut extra = Vec::new();
 
-    let threads = (0..num_threads)
-        .map(|_| {
-            let send_out = send_out.clone();
-            let (send_line, recv_line) = std::sync::mpsc::channel::<String>();
+    loop {
+        // Read next chunk from file.
+        let chunk_size = CHUNK_SIZE - extra.len();
+        let mut buf = vec![0; chunk_size];
 
-            std::thread::spawn(move || {
-                let mut station_map = HashMap::<String, WeatherStation>::new();
+        let last_loop = match file.read_exact(&mut buf).await {
+            Ok(_) => false,
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => true,
+            Err(e) => return Err(e.into()),
+        };
 
-                for line in recv_line.iter() {
-                    if line == SIGNAL_END {
-                        break;
-                    }
+        // Add the extra bytes to start of the buffer.
+        let mut new_buf = extra.clone();
+        new_buf.extend_from_slice(&buf);
 
-                    let s = line.split(';').collect::<Vec<_>>();
-                    let name = s[0];
-                    let value = s[1].parse::<f64>().unwrap();
+        // Find the last newline in the buffer.
+        let mut last_newline = new_buf.len();
 
-                    let station = match station_map.get_mut(name) {
-                        Some(station) => station,
-                        None => {
-                            station_map.insert(name.to_string(), WeatherStation::default());
-                            station_map.get_mut(name).unwrap()
-                        }
-                    };
-
-                    station.count += 1;
-                    station.total += value;
-                    station.max = station.max.max(value);
-                    station.min = station.min.min(value);
-                }
-
-                send_out.send(station_map).expect("Error sending line");
-            });
-
-            send_line
-        })
-        .collect::<Vec<_>>();
-
-    let mut num_lines = 0;
-    let mut used_threads = HashSet::new();
-
-    contents.split('\n').for_each(|line| {
-        if line.is_empty() {
-            return;
+        for (i, &c) in new_buf.iter().enumerate().rev() {
+            if c == b'\n' {
+                last_newline = i;
+                break;
+            }
         }
 
-        let first_char = line.chars().next().unwrap();
+        // Split the buffer at the last newline.
+        let (lines, new_extra) = new_buf.split_at(last_newline);
+        extra = new_extra.to_vec();
 
-        // Deterministic thread selection using the first character of the line
-        let thread_idx = (first_char as usize) % num_threads;
-        used_threads.insert(thread_idx);
-        let thread = &threads[thread_idx];
+        let lines = lines.to_vec();
 
-        thread.send(line.to_string()).expect("Error sending line");
+        // Process the lines.
+        let handle = tokio::spawn(async move {
+            let mut map = BTreeMap::<String, WeatherStation>::new();
 
-        num_lines += 1;
-    });
+            for line in lines.split(|&c| c == b'\n') {
+                if line.is_empty() {
+                    continue;
+                }
 
-    for send in threads {
-        send.send(SIGNAL_END.to_string())
-            .expect("Error sending line");
+                let line = std::str::from_utf8(line).unwrap();
+                let s = line.split(';').collect::<Vec<_>>();
+                let name = s[0];
+                let value = s[1].parse::<f64>().unwrap();
+                let value = (value * 100.0) as i64;
+
+                let station = map.entry(name.to_string()).or_default();
+
+                station.count += 1;
+                station.sum += value;
+                station.max = station.max.max(value);
+                station.min = station.min.min(value);
+            }
+
+            map.into_iter().collect::<Vec<_>>()
+        });
+
+        handles.push(handle);
+
+        if last_loop {
+            break;
+        }
     }
 
-    let mut array = recv_out
-        .iter()
-        .take(used_threads.len())
-        .flat_map(|m| m.into_iter().collect::<Vec<_>>())
-        .collect::<Vec<_>>();
+    let mut map = BTreeMap::<String, WeatherStation>::new();
 
-    array.sort_by(|a, b| a.0.cmp(&b.0));
+    for handle in handles {
+        let lines = handle.await.unwrap();
 
-    let out_file_name = path.replace(".txt", ".out");
-    let mut file = std::fs::File::create(out_file_name.clone())?;
+        for (k, v) in lines {
+            let station = map.entry(k.to_string()).or_default();
 
-    for (k, v) in array {
-        let mean = v.total / v.count as f64;
-        let line = format!("{}:{};{:.1};{}\n", k, v.min, mean, v.max);
-        file.write_all(line.as_bytes())?;
+            station.count += v.count;
+            station.sum += v.sum;
+            station.max = station.max.max(v.max);
+            station.min = station.min.min(v.min);
+        }
     }
 
-    Ok(out_file_name)
+    let out_name = path.replace(".txt", ".out");
+    let mut out = std::fs::File::create(&out_name)?;
+
+    for (k, v) in map.iter() {
+        let mean = v.sum as f64 / v.count as f64 / 100.0;
+        let min = v.min as f64 / 100.0;
+        let max = v.max as f64 / 100.0;
+        let line = format!("{};{:.1};{:.1};{:.1}\n", k, min, mean, max);
+        out.write_all(line.as_bytes())?;
+    }
+
+    Ok(out_name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_data() {
+    #[derive(Clone, Debug)]
+    struct WeatherStation {
+        count: u64,
+        max: f64,
+        min: f64,
+        sum: f64,
+    }
+
+    impl Default for WeatherStation {
+        fn default() -> Self {
+            WeatherStation {
+                count: 0,
+                max: -std::f64::INFINITY,
+                min: std::f64::INFINITY,
+                sum: 0.0,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_data() {
         let files = std::fs::read_dir("test-data")
             .unwrap()
             .filter_map(|f| f.ok())
@@ -131,7 +160,7 @@ mod tests {
 
             println!("Testing {}", filename);
 
-            let out = process_file(filename, 1).expect("Error processing file");
+            let out = process_file(filename).await.expect("Error processing file");
             validate(filename, &out);
         }
     }
@@ -155,7 +184,7 @@ mod tests {
             let station = station_map.entry(name.to_string()).or_default();
 
             station.count += 1;
-            station.total += value;
+            station.sum += value;
             station.max = station.max.max(value);
             station.min = station.min.min(value);
         }
@@ -166,8 +195,8 @@ mod tests {
         let mut expected = String::new();
 
         for (k, v) in array {
-            let mean = v.total / v.count as f64;
-            let line = format!("{}:{};{:.1};{}\n", k, v.min, mean, v.max);
+            let mean = v.sum / v.count as f64;
+            let line = format!("{};{:.1};{:.1};{:.1}\n", k, v.min, mean, v.max);
             expected.push_str(&line);
         }
 

@@ -8,3 +8,6 @@ license = "GPL-3.0-or-later"
 
 [profile.release]
 lto = true
+
+[dependencies]
+tokio = { version = "1.36.0", features = ["full"] }
