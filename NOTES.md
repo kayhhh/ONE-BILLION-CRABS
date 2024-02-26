@@ -37,7 +37,10 @@ The chunk size has a big impact on performance.
 A 512KB chunk size, for example, was about the same speed as the syncronous version.
 After trying a few different sizes, 16MB seemed to work best for my machine.
 
-There are a lot of unnecessary allocations and copies, but even so this parallel line reading brought a 10x increase in speed.
+I also started using BTreeMaps instead of HashMaps to store the running counts for each item.
+BTreeMaps are sorted, so I figured it might save a step later on, but I have no idea whether it helped or hurt performance.
+
+There are a lot of unnecessary allocations and copies, but even so these changes brought a 10x increase in speed.
 
 ## Result
 
