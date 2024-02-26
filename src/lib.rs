@@ -22,7 +22,7 @@ impl Default for WeatherStation {
 }
 
 // Size of each chunk we read from the file, in bytes.
-const CHUNK_SIZE: usize = 64 * 1024 * 1024;
+const CHUNK_SIZE: usize = 16 * 1024 * 1024;
 
 /// Process the given file, returns the name of the output file.
 pub async fn process_file(path: &str) -> Result<String, Box<dyn Error>> {
